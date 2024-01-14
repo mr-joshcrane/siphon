@@ -3,6 +3,7 @@ package siphon_test
 import (
 	"bytes"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -12,7 +13,7 @@ import (
 func TestEnqueue_OrderIsCorrect(t *testing.T) {
 	t.Parallel()
 	buf := new(bytes.Buffer)
-	q := siphon.MemoryQueue{Buf: buf}
+	q := siphon.NewMemoryQueue(buf)
 	q.Enqueue("a")
 	q.Enqueue("b")
 	q.Enqueue("c")
@@ -24,10 +25,10 @@ func TestEnqueue_OrderIsCorrect(t *testing.T) {
 	}
 }
 
-func TestEnqueue_SizeIncrementsCorrectly(t *testing.T) {
+func TestEnqueue_BytesIncrease(t *testing.T) {
 	t.Parallel()
 	buf := new(bytes.Buffer)
-	q := siphon.MemoryQueue{Buf: buf}
+	q := siphon.NewMemoryQueue(buf)
 	if buf.Len() != 0 {
 		t.Errorf("Expected queue to be empty, got %d", buf.Len())
 	}
@@ -44,8 +45,7 @@ func TestEnqueue_SizeIncrementsCorrectly(t *testing.T) {
 func TestDequeue_IsFirstInFirstOut(t *testing.T) {
 	t.Parallel()
 	buf := helperTestBuffer()
-	q := siphon.MemoryQueue{Buf: buf}
-
+	q := siphon.NewMemoryQueue(buf)
 	item, err := q.Dequeue()
 	if err != nil {
 		t.Fatalf("Expected no error, got %q", err)
@@ -69,11 +69,10 @@ func TestDequeue_IsFirstInFirstOut(t *testing.T) {
 	}
 }
 
-func TestDequeue_SizeDecrementsCorrectly(t *testing.T) {
+func TestDequeue_BytesDecrease(t *testing.T) {
 	t.Parallel()
 	buf := helperTestBuffer()
-	q := siphon.MemoryQueue{Buf: buf}
-
+	q := siphon.NewMemoryQueue(buf)
 	_, err := q.Dequeue()
 	if err != nil {
 		t.Fatalf("Expected no error, got %q", err)
@@ -100,7 +99,7 @@ func TestDequeue_SizeDecrementsCorrectly(t *testing.T) {
 func TestEmptyQueueDequeue(t *testing.T) {
 	t.Parallel()
 	buf := new(bytes.Buffer)
-	q := siphon.MemoryQueue{Buf: buf}
+	q := siphon.NewMemoryQueue(buf)
 	item, err := q.Dequeue()
 	if err != nil {
 		t.Fatalf("Expected no error, got %q", err)
@@ -113,7 +112,7 @@ func TestEmptyQueueDequeue(t *testing.T) {
 func TestSize(t *testing.T) {
 	t.Parallel()
 	buf := new(bytes.Buffer)
-	q := siphon.MemoryQueue{Buf: buf}
+	q := siphon.NewMemoryQueue(buf)
 	if q.Size() != 0 {
 		t.Errorf("Expected queue to be empty, got %d", q.Size())
 	}
@@ -142,16 +141,42 @@ func TestSize(t *testing.T) {
 func TestConcurrency_IsThreadSafe(t *testing.T) {
 	t.Parallel()
 	buf := new(bytes.Buffer)
-	q := siphon.MemoryQueue{Buf: buf}
+	q := siphon.NewMemoryQueue(buf)
+	wg := &sync.WaitGroup{}
+	wg.Add(100)
 	for i := 0; i < 100; i++ {
 		go func(i int) {
 			q.Enqueue(fmt.Sprintf("string %d", i))
+			wg.Done()
 		}(i)
 	}
+	wg.Wait()
 	if q.Size() != 100 {
-		t.Errorf("Expected queue to have 100 items, got %d", q.Size())
+		t.Errorf("expected queue to have 100 items, got %d", q.Size())
 	}
 }
+
+func BenchmarkEnqueue(b *testing.B) {
+	buf := new(bytes.Buffer)
+	q := siphon.NewMemoryQueue(buf)
+	for i := 0; i < b.N; i++ {
+		q.Enqueue("a")
+		q.Dequeue()
+	}
+}
+
+//
+// func BenchmarkEnqueueConcurrent(b *testing.B) {
+// 	buf := new(bytes.Buffer)
+// 	q := siphon.NewMemoryQueue(buf)
+// 	for i := 0; i < b.N; i++ {
+// 		go func() {
+// 			q.Enqueue("a")
+// 			q.Dequeue()
+// 		}()
+//
+//	}
+//}
 
 func helperTestBuffer() *bytes.Buffer {
 	return bytes.NewBuffer([]byte{0, 0, 0, 1, 'a', 0, 0, 0, 1, 'b', 0, 0, 0, 1, 'c'})
