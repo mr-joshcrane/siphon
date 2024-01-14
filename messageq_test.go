@@ -2,6 +2,7 @@ package siphon_test
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -98,18 +99,58 @@ func TestDequeue_SizeDecrementsCorrectly(t *testing.T) {
 
 func TestEmptyQueueDequeue(t *testing.T) {
 	t.Parallel()
+	buf := new(bytes.Buffer)
+	q := siphon.MemoryQueue{Buf: buf}
+	item, err := q.Dequeue()
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	if item != "" {
+		t.Errorf("Expected empty string, got %q", item)
+	}
 }
 
 func TestSize(t *testing.T) {
 	t.Parallel()
+	buf := new(bytes.Buffer)
+	q := siphon.MemoryQueue{Buf: buf}
+	if q.Size() != 0 {
+		t.Errorf("Expected queue to be empty, got %d", q.Size())
+	}
+	q.Enqueue("first string")
+	if q.Size() != 1 {
+		t.Errorf("Expected queue to have 1 item, got %d", q.Size())
+	}
+	q.Enqueue("second string")
+	if q.Size() != 2 {
+		t.Errorf("Expected queue to have 2 items, got %d", q.Size())
+	}
+	_, _ = q.Dequeue()
+	_, err := q.Dequeue()
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	if q.Size() != 0 {
+		t.Errorf("Expected queue to have 0 item, got %d", q.Size())
+	}
+	_, _ = q.Dequeue()
+	if q.Size() != 0 {
+		t.Errorf("Expected queue to be empty after empty dequeue, got %d", q.Size())
+	}
 }
 
-func TestOrdering(t *testing.T) {
+func TestConcurrency_IsThreadSafe(t *testing.T) {
 	t.Parallel()
-}
-
-func TestConcurrency(t *testing.T) {
-	t.Parallel()
+	buf := new(bytes.Buffer)
+	q := siphon.MemoryQueue{Buf: buf}
+	for i := 0; i < 100; i++ {
+		go func(i int) {
+			q.Enqueue(fmt.Sprintf("string %d", i))
+		}(i)
+	}
+	if q.Size() != 100 {
+		t.Errorf("Expected queue to have 100 items, got %d", q.Size())
+	}
 }
 
 func helperTestBuffer() *bytes.Buffer {

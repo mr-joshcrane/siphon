@@ -9,10 +9,12 @@ import (
 type Queue interface {
 	Enqueue(string)
 	Dequeue() string
+	Size() int
 }
 
 type MemoryQueue struct {
-	Buf *bytes.Buffer
+	Buf  *bytes.Buffer
+	size int
 }
 
 func (q *MemoryQueue) Enqueue(s string) {
@@ -21,6 +23,7 @@ func (q *MemoryQueue) Enqueue(s string) {
 	binary.BigEndian.PutUint32(sizeHint, uint32(length))
 	q.Buf.Write(sizeHint)
 	q.Buf.WriteString(s)
+	q.size++
 }
 
 func (q *MemoryQueue) Dequeue() (string, error) {
@@ -39,5 +42,10 @@ func (q *MemoryQueue) Dequeue() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error reading message: %q", err)
 	}
+	q.size--
 	return string(message), nil
+}
+
+func (q *MemoryQueue) Size() int {
+	return q.size
 }
