@@ -4,13 +4,37 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"sync"
 )
 
-type Queue interface {
-	Enqueue(string)
-	Dequeue() string
+type QueueTarget interface {
+	Enqueue(string) error
+}
+
+type QueueSource interface {
+	Dequeue() (string, error)
 	Size() int
+}
+
+type Queue interface {
+	QueueTarget
+	QueueSource
+}
+
+type NetworkQueue struct {
+	Conn net.Conn
+}
+
+func (q *NetworkQueue) Enqueue(s string) error {
+	_, err := fmt.Fprintln(q.Conn, s)
+	return err
+}
+
+func NetworkQueueTarget(conn net.Conn) *NetworkQueue {
+	return &NetworkQueue{
+		Conn: conn,
+	}
 }
 
 func NewMemoryQueue(buf *bytes.Buffer) *MemoryQueue {

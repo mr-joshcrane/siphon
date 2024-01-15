@@ -15,35 +15,44 @@ func Main() int {
 	if err != nil {
 		log.Fatal(err)
 	}
-	stdoutMultiWriter := io.MultiWriter(os.Stdout, conn)
-	stderrMultiWriter := io.MultiWriter(os.Stderr, conn)
 	defer conn.Close()
+	q := NetworkQueueTarget(conn)
 	cmd := exec.Command(os.Args[1], os.Args[2:]...)
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Fatal(err)
 		return 1
 	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		log.Fatal(err)
-		return 1
-	}
 	command := fmt.Sprintf(">> %s", strings.Join(os.Args[1:], " "))
-	fmt.Fprintln(conn, command)
-	go io.Copy(stdoutMultiWriter, stdoutPipe)
-	go io.Copy(stderrMultiWriter, stderrPipe)
+	producer := NewProducer(q)
+	combinedOutput := io.MultiWriter(os.Stdout, producer)
+	fmt.Fprintf(producer, ">> %s\n", command)
+	done := make(chan error)
+	go func() {
+		err := producer.ProduceStream()
+		if err != nil {
+			log.Fatal(err)
+		}
+		done <- err
+
+	}()
+	go func() {
+		io.Copy(combinedOutput, stdoutPipe)
+		producer.Done()
+	}()
 	err = cmd.Start()
 	if err != nil {
 		log.Fatal(err)
 		return 1
 	}
 	err = cmd.Wait()
+	exitCode := 0
 	if err != nil {
 		log.Fatal(err)
-		return 1
+		exitCode = 1
 	}
-	return 0
+	<-done
+	return exitCode
 }
 
 func Recieve() error {
