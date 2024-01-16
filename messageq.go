@@ -2,6 +2,7 @@ package siphon
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -27,7 +28,12 @@ type NetworkQueue struct {
 }
 
 func (q *NetworkQueue) Enqueue(s string) error {
-	_, err := fmt.Fprintln(q.Conn, s)
+	length := len(s)
+	sizeHint := make([]byte, 4)
+	binary.BigEndian.PutUint32(sizeHint, uint32(length))
+	msg := fmt.Sprintf("%s%s", string(sizeHint), s)
+	encoded := base64.StdEncoding.EncodeToString([]byte(msg))
+	_, err := q.Conn.Write([]byte(encoded + "\n"))
 	return err
 }
 
@@ -51,7 +57,7 @@ type MemoryQueue struct {
 	mu   *sync.RWMutex
 }
 
-func (q *MemoryQueue) Enqueue(s string) {
+func (q *MemoryQueue) Enqueue(s string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -61,6 +67,7 @@ func (q *MemoryQueue) Enqueue(s string) {
 	q.Buf.Write(sizeHint)
 	q.Buf.WriteString(s)
 	q.size++
+	return nil
 }
 
 func (q *MemoryQueue) Dequeue() (string, error) {

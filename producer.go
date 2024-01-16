@@ -55,6 +55,7 @@ func (p *Producer) ProduceStream() error {
 
 func (p *Producer) Send() {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.buf.Len() > 0 {
 		err := p.MessageQueueTarget.Enqueue(p.buf.String())
 		if err != nil {
