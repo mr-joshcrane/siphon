@@ -8,10 +8,9 @@ import (
 )
 
 func main() {
-	err := siphon.Recieve(os.Stdout)
-	if err != nil {
-		fmt.Println(err)
+	err := siphon.ListenAndServe(":8000")
+	if err != siphon.ErrServerClosed {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	os.Exit(0)
 }

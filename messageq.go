@@ -2,80 +2,157 @@ package siphon
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"sync"
 )
 
-type QueueTarget interface {
-	Enqueue(string) error
+var ErrServerClosed = errors.New("siphon: server closed")
+
+func ListenAndServe(addr string) error {
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer l.Close()
+	q := NewMemoryQueue(new(bytes.Buffer))
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			return err
+		}
+		go handleConn(conn, q)
+	}
+	return ErrServerClosed
 }
 
-type QueueSource interface {
-	Dequeue() (string, error)
-	Size() int
-}
-
-type Queue interface {
-	QueueTarget
-	QueueSource
-}
-
-type NetworkQueue struct {
-	Conn net.Conn
-}
-
-func (q *NetworkQueue) Enqueue(s string) error {
-	length := len(s)
-	sizeHint := make([]byte, 4)
-	binary.BigEndian.PutUint32(sizeHint, uint32(length))
-	msg := fmt.Sprintf("%s%s", string(sizeHint), s)
-	encoded := base64.StdEncoding.EncodeToString([]byte(msg))
-	_, err := q.Conn.Write([]byte(encoded + "\n"))
-	return err
-}
-
-func NetworkQueueTarget(conn net.Conn) *NetworkQueue {
-	return &NetworkQueue{
-		Conn: conn,
+func handleConn(conn net.Conn, q *MemoryQueue) {
+	defer conn.Close()
+	for {
+		length := make([]byte, 8)
+		_, err := io.ReadFull(conn, length)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return
+		}
+		size := binary.BigEndian.Uint64(length)
+		if size == 0 {
+			msg, err := q.Dequeue()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return
+			}
+			length := make([]byte, 8)
+			binary.BigEndian.PutUint64(length, uint64(len(msg)))
+			message := append(length, []byte(msg)...)
+			_, err = conn.Write(message)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return
+			}
+			continue
+		}
+		message := make([]byte, size)
+		_, err = io.ReadFull(conn, message)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return
+		}
+		err = q.Enqueue(string(message))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return
+		}
+		q.Signal()
+		fmt.Println("Got message:", string(message))
 	}
 }
 
+type Queue struct {
+	conn net.Conn
+}
+
+func (q *Queue) Publish(s string) error {
+	length := make([]byte, 8)
+	binary.BigEndian.PutUint64(length, uint64(len(s)))
+	message := append(length, []byte(s)...)
+	_, err := q.conn.Write(message)
+	return err
+}
+
+func (q *Queue) Receive() (string, error) {
+	_, err := q.conn.Write(bytes.Repeat([]byte{0}, 8))
+	if err != nil {
+		return "", err
+	}
+	length := make([]byte, 8)
+	_, err = io.ReadFull(q.conn, length)
+	if err != nil {
+		return "", err
+	}
+	size := binary.BigEndian.Uint64(length)
+	message := make([]byte, size)
+	_, err = io.ReadFull(q.conn, message)
+	if err != nil {
+		return "", err
+	}
+	return string(message), nil
+}
+
+func GetQueue(addr, name string) (*Queue, error) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	return &Queue{
+		conn: conn,
+	}, nil
+}
+
 func NewMemoryQueue(buf *bytes.Buffer) *MemoryQueue {
+	mu := &sync.RWMutex{}
+	cond := sync.NewCond(mu)
 	return &MemoryQueue{
-		Buf:  buf,
-		size: 0,
-		mu:   &sync.RWMutex{},
+		Buf:     buf,
+		size:    len(buf.Bytes()),
+		isEmpty: cond,
+		mu:      mu,
 	}
 }
 
 type MemoryQueue struct {
-	Buf  *bytes.Buffer
-	size int
-	mu   *sync.RWMutex
+	Buf     *bytes.Buffer
+	size    int
+	mu      *sync.RWMutex
+	isEmpty *sync.Cond
+}
+
+func (q *MemoryQueue) Signal() {
+	q.isEmpty.Signal()
 }
 
 func (q *MemoryQueue) Enqueue(s string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-
 	length := len(s)
 	sizeHint := make([]byte, 4)
 	binary.BigEndian.PutUint32(sizeHint, uint32(length))
 	q.Buf.Write(sizeHint)
 	q.Buf.WriteString(s)
 	q.size++
+	q.isEmpty.Signal()
 	return nil
 }
 
 func (q *MemoryQueue) Dequeue() (string, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if len(q.Buf.Bytes()) == 0 {
-		// empty queue is not an error
-		return "", nil
+	for q.Size() == 0 {
+		q.isEmpty.Wait()
 	}
 	sizeHint := make([]byte, 4)
 	_, err := q.Buf.Read(sizeHint)
@@ -93,7 +170,5 @@ func (q *MemoryQueue) Dequeue() (string, error) {
 }
 
 func (q *MemoryQueue) Size() int {
-	q.mu.Lock()
-	defer q.mu.Unlock()
 	return q.size
 }
