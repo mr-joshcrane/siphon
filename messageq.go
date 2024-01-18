@@ -73,7 +73,7 @@ func handleConn(conn net.Conn, q *MemoryQueue) {
 }
 
 type Queue struct {
-	conn net.Conn
+	conn io.ReadWriter
 }
 
 func (q *Queue) Publish(s string) error {
@@ -144,7 +144,7 @@ func (q *MemoryQueue) Enqueue(s string) error {
 	q.Buf.Write(sizeHint)
 	q.Buf.WriteString(s)
 	q.size++
-	q.isEmpty.Signal()
+	q.Signal()
 	return nil
 }
 
