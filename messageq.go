@@ -75,12 +75,6 @@ type QueueClient struct {
 	conn *MemoryQueue
 }
 
-func NewQueueClient(q MemoryQueue) *QueueClient {
-	return &QueueClient{
-		conn: &q,
-	}
-}
-
 func (q *QueueClient) Publish(s string) error {
 	err := q.conn.Enqueue(s)
 	return err
