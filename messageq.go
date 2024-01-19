@@ -25,29 +25,29 @@ func ListenAndServe(addr string) error {
 		if err != nil {
 			return err
 		}
-		go handleConn(conn, q)
+		go handleConn(conn, *q)
 	}
 	return ErrServerClosed
 }
 
-func handleConn(conn net.Conn, q *MemoryQueue) {
+func handleConn(conn net.Conn, q MemoryQueue) {
 	defer conn.Close()
 	for {
-		length := make([]byte, 8)
+		length := make([]byte, 4)
 		_, err := io.ReadFull(conn, length)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return
 		}
-		size := binary.BigEndian.Uint64(length)
+		size := binary.BigEndian.Uint32(length)
 		if size == 0 {
 			msg, err := q.Dequeue()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return
 			}
-			length := make([]byte, 8)
-			binary.BigEndian.PutUint64(length, uint64(len(msg)))
+			length := make([]byte, 4)
+			binary.BigEndian.PutUint32(length, uint32(len(msg)))
 			message := append(length, []byte(msg)...)
 			_, err = conn.Write(message)
 			if err != nil {
@@ -68,48 +68,35 @@ func handleConn(conn net.Conn, q *MemoryQueue) {
 			return
 		}
 		q.Signal()
-		fmt.Println("Got message:", string(message))
 	}
 }
 
-type Queue struct {
-	conn io.ReadWriter
+type QueueClient struct {
+	conn *MemoryQueue
 }
 
-func (q *Queue) Publish(s string) error {
-	length := make([]byte, 8)
-	binary.BigEndian.PutUint64(length, uint64(len(s)))
-	message := append(length, []byte(s)...)
-	_, err := q.conn.Write(message)
+func NewQueueClient(q MemoryQueue) *QueueClient {
+	return &QueueClient{
+		conn: &q,
+	}
+}
+
+func (q *QueueClient) Publish(s string) error {
+	err := q.conn.Enqueue(s)
 	return err
 }
 
-func (q *Queue) Receive() (string, error) {
-	_, err := q.conn.Write(bytes.Repeat([]byte{0}, 8))
+func (q *QueueClient) Receive() (string, error) {
+	msg, err := q.conn.Dequeue()
 	if err != nil {
 		return "", err
 	}
-	length := make([]byte, 8)
-	_, err = io.ReadFull(q.conn, length)
-	if err != nil {
-		return "", err
-	}
-	size := binary.BigEndian.Uint64(length)
-	message := make([]byte, size)
-	_, err = io.ReadFull(q.conn, message)
-	if err != nil {
-		return "", err
-	}
-	return string(message), nil
+	return string(msg), nil
 }
 
-func GetQueue(addr, name string) (*Queue, error) {
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-	return &Queue{
-		conn: conn,
+func GetQueue(q *MemoryQueue, name string) (*QueueClient, error) {
+	return &QueueClient{
+		conn: q,
 	}, nil
 }
 

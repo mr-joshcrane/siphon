@@ -157,6 +157,54 @@ func TestConcurrency_IsThreadSafe(t *testing.T) {
 	}
 }
 
+func TestQueueClient_PublishesToQueue(t *testing.T) {
+	t.Parallel()
+	buf := new(bytes.Buffer)
+	q := siphon.NewMemoryQueue(buf)
+	c, err := siphon.GetQueue(q, "test")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	err = c.Publish("a")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	if q.Size() != 1 {
+		t.Errorf("Expected queue to have 1 item, got %d", q.Size())
+	}
+}
+
+func TestQueueClient_ReceivesFromQueue(t *testing.T) {
+	t.Parallel()
+	q := siphon.NewMemoryQueue(new(bytes.Buffer))
+	err := q.Enqueue("a")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	c, err := siphon.GetQueue(q, "test")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	item, err := c.Receive()
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	if item != "a" {
+		t.Errorf("Expected first item to be \"a\", got %q", item)
+	}
+	err = q.Enqueue("bananas")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	item, err = c.Receive()
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	if item != "bananas" {
+		t.Errorf("Expected first item to be \"bananas\", got %q", item)
+	}
+}
+
 func BenchmarkEnqueue(b *testing.B) {
 	buf := new(bytes.Buffer)
 	q := siphon.NewMemoryQueue(buf)
