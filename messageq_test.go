@@ -2,7 +2,10 @@ package siphon_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -139,6 +142,117 @@ func TestSize(t *testing.T) {
 	}
 }
 
+func TestQueueClient_Enqueue(t *testing.T) {
+	t.Parallel()
+	c := helperTestClient()
+	err := c.Publish("a")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	err = c.Publish("b")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	err = c.Publish("c")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	got, err := io.ReadAll(c.Conn)
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	want := []byte{0, 0, 0, 1, 'a', 0, 0, 0, 1, 'b', 0, 0, 0, 1, 'c'}
+
+	if !cmp.Equal(got, want) {
+		t.Errorf("Expected queue to be %q, got %q", want, got)
+	}
+}
+
+func TestQueueClient_Dequeue(t *testing.T) {
+	t.Parallel()
+	c := helperTestClient("a", "b", "c")
+	got, err := c.Receive()
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	if got != "a" {
+		t.Errorf("Expected first item to be \"a\", got %q", got)
+	}
+	got, err = c.Receive()
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	if got != "b" {
+		t.Errorf("Expected first item to be \"b\", got %q", got)
+	}
+	got, err = c.Receive()
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	if got != "c" {
+		t.Errorf("Expected first item to be \"c\", got %q", got)
+	}
+}
+
+func TestHandleConn_Publish(t *testing.T) {
+	t.Parallel()
+	addr, q, cleanup := helperTCPServerWithConn(t)
+	defer cleanup()
+	c, err := siphon.GetQueue(addr, "test")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	err = c.Publish("a")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	err = c.Publish("b")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	waitForQueueSize(q, 2)
+	got := q.Buf.Bytes()
+	want := []byte{0, 0, 0, 1, 'a', 0, 0, 0, 1, 'b'}
+	if !cmp.Equal(got, want) {
+		t.Errorf("Expected queue to be %q, got %q", want, got)
+	}
+}
+
+func TestHandleConn_Receive(t *testing.T) {
+	t.Parallel()
+	addr, q, cleanup := helperTCPServerWithConn(t)
+	defer cleanup()
+	c, err := siphon.GetQueue(addr, "test")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	_ = q.Enqueue("a")
+	_ = q.Enqueue("b")
+	_ = q.Enqueue("c")
+	waitForQueueSize(q, 3)
+	got, err := c.Receive()
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	if got != "a" {
+		t.Errorf("Expected first item to be \"a\", got %q", got)
+	}
+	got, err = c.Receive()
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	if got != "b" {
+		t.Errorf("Expected second item to be \"b\", got %q", got)
+	}
+	got, err = c.Receive()
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	if got != "c" {
+		t.Errorf("Expected third item to be \"c\", got %q", got)
+	}
+}
+
 func TestConcurrency_IsThreadSafe(t *testing.T) {
 	t.Parallel()
 	buf := new(bytes.Buffer)
@@ -156,55 +270,6 @@ func TestConcurrency_IsThreadSafe(t *testing.T) {
 		t.Errorf("expected queue to have 100 items, got %d", q.Size())
 	}
 }
-
-func TestQueueClient_PublishesToQueue(t *testing.T) {
-	t.Parallel()
-	buf := new(bytes.Buffer)
-	q := siphon.NewMemoryQueue(buf)
-	c, err := siphon.GetQueue(q, "test")
-	if err != nil {
-		t.Fatalf("Expected no error, got %q", err)
-	}
-	err = c.Publish("a")
-	if err != nil {
-		t.Fatalf("Expected no error, got %q", err)
-	}
-	if q.Size() != 1 {
-		t.Errorf("Expected queue to have 1 item, got %d", q.Size())
-	}
-}
-
-func TestQueueClient_ReceivesFromQueue(t *testing.T) {
-	t.Parallel()
-	q := siphon.NewMemoryQueue(new(bytes.Buffer))
-	err := q.Enqueue("a")
-	if err != nil {
-		t.Fatalf("Expected no error, got %q", err)
-	}
-	c, err := siphon.GetQueue(q, "test")
-	if err != nil {
-		t.Fatalf("Expected no error, got %q", err)
-	}
-	item, err := c.Receive()
-	if err != nil {
-		t.Fatalf("Expected no error, got %q", err)
-	}
-	if item != "a" {
-		t.Errorf("Expected first item to be \"a\", got %q", item)
-	}
-	err = q.Enqueue("bananas")
-	if err != nil {
-		t.Fatalf("Expected no error, got %q", err)
-	}
-	item, err = c.Receive()
-	if err != nil {
-		t.Fatalf("Expected no error, got %q", err)
-	}
-	if item != "bananas" {
-		t.Errorf("Expected first item to be \"bananas\", got %q", item)
-	}
-}
-
 func BenchmarkEnqueue(b *testing.B) {
 	buf := new(bytes.Buffer)
 	q := siphon.NewMemoryQueue(buf)
@@ -216,4 +281,41 @@ func BenchmarkEnqueue(b *testing.B) {
 
 func helperTestBuffer() *bytes.Buffer {
 	return bytes.NewBuffer([]byte{0, 0, 0, 1, 'a', 0, 0, 0, 1, 'b', 0, 0, 0, 1, 'c'})
+}
+
+func helperTestClient(items ...string) *siphon.Client {
+	c := &siphon.Client{
+		Conn: new(bytes.Buffer),
+	}
+	for _, item := range items {
+		_ = c.Publish(item)
+	}
+	return c
+
+}
+
+func helperTCPServerWithConn(t *testing.T) (addr string, q *siphon.MemoryQueue, cleanup func()) {
+	t.Helper()
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("Expected no error, got %q", err)
+	}
+	q = siphon.NewMemoryQueue(new(bytes.Buffer))
+	go func() {
+		conn, _ := l.Accept()
+		siphon.HandleConn(conn, q)
+	}()
+	return l.Addr().String(), q, func() {
+		l.Close()
+	}
+}
+
+func waitForQueueSize(q *siphon.MemoryQueue, size int) {
+	ctx, cancel := context.WithTimeout(context.TODO(), 2000*time.Millisecond)
+	defer cancel()
+	for ctx.Err() == nil {
+		if q.Size() == size {
+			cancel()
+		}
+	}
 }

@@ -11,6 +11,13 @@ import (
 	"sync"
 )
 
+type command int
+
+const (
+	Publish command = iota
+	Receive
+)
+
 var ErrServerClosed = errors.New("siphon: server closed")
 
 func ListenAndServe(addr string) error {
@@ -25,72 +32,119 @@ func ListenAndServe(addr string) error {
 		if err != nil {
 			return err
 		}
-		go handleConn(conn, *q)
+		go HandleConn(conn, q)
 	}
 	return ErrServerClosed
 }
 
-func handleConn(conn net.Conn, q MemoryQueue) {
-	defer conn.Close()
-	for {
-		length := make([]byte, 4)
-		_, err := io.ReadFull(conn, length)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return
-		}
-		size := binary.BigEndian.Uint32(length)
-		if size == 0 {
-			msg, err := q.Dequeue()
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				return
-			}
-			length := make([]byte, 4)
-			binary.BigEndian.PutUint32(length, uint32(len(msg)))
-			message := append(length, []byte(msg)...)
-			_, err = conn.Write(message)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				return
-			}
-			continue
-		}
-		message := make([]byte, size)
-		_, err = io.ReadFull(conn, message)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return
-		}
-		err = q.Enqueue(string(message))
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return
-		}
-		q.Signal()
+func HandleConn(conn net.Conn, q *MemoryQueue) {
+	worker, err := GetWorker(conn)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
 	}
+	for {
+		err := worker.ClientResponse(q)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return
+		}
+	}
+
 }
 
-type QueueClient struct {
-	conn *MemoryQueue
+func messageToBytes(msg string) []byte {
+	size := make([]byte, 4)
+	binary.BigEndian.PutUint32(size, uint32(len(msg)))
+	return append(size, []byte(msg)...)
 }
 
-func (q *QueueClient) Publish(s string) error {
-	err := q.conn.Enqueue(s)
+type MessagePasser interface {
+	Receive() (string, error)
+	Publish(string) error
+}
+
+type Client struct {
+	Conn io.ReadWriter
+}
+
+type Worker struct {
+	Conn io.ReadWriter
+	Client
+}
+
+func (w *Worker) ClientResponse(q *MemoryQueue) error {
+	length := make([]byte, 4)
+	_, err := io.ReadFull(w.Conn, length)
+	if err != nil {
+		return err
+	}
+	size := binary.BigEndian.Uint32(length)
+	if size == 0 {
+		if err != nil {
+			return err
+		}
+		msg, err := q.Dequeue()
+		if err != nil {
+			return err
+		}
+		_, err = w.Conn.Write(messageToBytes(msg))
+		if err != nil {
+			return err
+		}
+	} else {
+		message := make([]byte, size)
+		_, err = io.ReadFull(w.Conn, message)
+		if err != nil {
+			return err
+		}
+		msg := string(message)
+
+		err = q.Enqueue(msg)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (q *Client) Publish(s string) error {
+	data := messageToBytes(s)
+	_, err := q.Conn.Write(data)
 	return err
 }
 
-func (q *QueueClient) Receive() (string, error) {
-	msg, err := q.conn.Dequeue()
+func (q *Client) Receive() (string, error) {
+	length := make([]byte, 4)
+	q.Conn.Write(length)
+	_, err := io.ReadFull(q.Conn, length)
 	if err != nil {
 		return "", err
 	}
-	return string(msg), nil
+	size := binary.BigEndian.Uint32(length)
+	if size == 0 {
+		return "", nil
+	}
+	message := make([]byte, size)
+	_, err = io.ReadFull(q.Conn, message)
+	if err != nil {
+		return "", err
+	}
+	return string(message), nil
 }
 
-func GetQueue(q *MemoryQueue, name string) (*QueueClient, error) {
-	return &QueueClient{
-		conn: q,
+func GetWorker(conn io.ReadWriter) (*Worker, error) {
+	return &Worker{
+		Conn: conn,
+	}, nil
+}
+
+func GetQueue(addr string, name string) (*Client, error) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{
+		Conn: conn,
 	}, nil
 }
 
