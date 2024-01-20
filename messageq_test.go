@@ -101,7 +101,6 @@ func TestDequeue_BytesDecrease(t *testing.T) {
 }
 
 func TestEmptyQueueDequeue(t *testing.T) {
-	t.Parallel()
 	buf := new(bytes.Buffer)
 	q := siphon.NewMemoryQueue(buf)
 	go func() {
@@ -195,7 +194,6 @@ func TestQueueClient_Dequeue(t *testing.T) {
 }
 
 func TestHandleConn_Publish(t *testing.T) {
-	t.Parallel()
 	addr, q, cleanup := helperTCPServerWithConn(t)
 	defer cleanup()
 	c, err := siphon.GetQueue(addr, "test")

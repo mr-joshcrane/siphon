@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 )
 
@@ -38,19 +39,18 @@ func ListenAndServe(addr string) error {
 }
 
 func HandleConn(conn net.Conn, q *MemoryQueue) {
-	worker, err := GetWorker(conn)
+	worker, err := GetWorker(conn, q)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return
 	}
 	for {
-		err := worker.ClientResponse(q)
+		err := worker.ClientResponse()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return
 		}
 	}
-
 }
 
 func messageToBytes(msg string) []byte {
@@ -70,43 +70,58 @@ type Client struct {
 
 type Worker struct {
 	Conn io.ReadWriter
-	Client
+	Q    *MemoryQueue
 }
 
-func (w *Worker) ClientResponse(q *MemoryQueue) error {
+func (w *Worker) Publish(s string) error {
+	size, err := strconv.Atoi(s)
+	if err != nil {
+		return err
+	}
+	message := make([]byte, size)
+	_, err = io.ReadFull(w.Conn, message)
+	if err != nil {
+		return err
+	}
+	msg := string(message)
+	err = w.Q.Enqueue(msg)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (w *Worker) Receive() (string, error) {
+	msg, err := w.Q.Dequeue()
+	if err != nil {
+		return "", err
+	}
+	_, err = w.Conn.Write(messageToBytes(msg))
+	if err != nil {
+		return "", err
+	}
+	return msg, nil
+
+}
+
+func (w *Worker) ClientResponse() error {
+	var err error
 	length := make([]byte, 4)
-	_, err := io.ReadFull(w.Conn, length)
+	_, err = io.ReadFull(w.Conn, length)
 	if err != nil {
 		return err
 	}
 	size := binary.BigEndian.Uint32(length)
 	if size == 0 {
+		_, err = w.Receive()
 		if err != nil {
 			return err
 		}
-		msg, err := q.Dequeue()
-		if err != nil {
-			return err
-		}
-		_, err = w.Conn.Write(messageToBytes(msg))
-		if err != nil {
-			return err
-		}
-	} else {
-		message := make([]byte, size)
-		_, err = io.ReadFull(w.Conn, message)
-		if err != nil {
-			return err
-		}
-		msg := string(message)
-
-		err = q.Enqueue(msg)
-		if err != nil {
-			return err
-		}
+		return nil
 	}
-	return nil
+	return w.Publish(strconv.Itoa(int(size)))
 }
+
 func (q *Client) Publish(s string) error {
 	data := messageToBytes(s)
 	_, err := q.Conn.Write(data)
@@ -132,9 +147,10 @@ func (q *Client) Receive() (string, error) {
 	return string(message), nil
 }
 
-func GetWorker(conn io.ReadWriter) (*Worker, error) {
+func GetWorker(conn io.ReadWriter, q *MemoryQueue) (*Worker, error) {
 	return &Worker{
 		Conn: conn,
+		Q:    q,
 	}, nil
 }
 
