@@ -12,13 +12,6 @@ import (
 	"sync"
 )
 
-type command int
-
-const (
-	Publish command = iota
-	Receive
-)
-
 var ErrServerClosed = errors.New("siphon: server closed")
 
 func ListenAndServe(addr string) error {
