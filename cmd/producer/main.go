@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	q, err := siphon.GetQueue("localhost:8000", "testEvents")
+	q, err := siphon.NewAWSQueue("testEvents")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -17,7 +17,7 @@ func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		text := scanner.Text()
-		err := q.Publish(text)
+		err := q.Enqueue(text)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
