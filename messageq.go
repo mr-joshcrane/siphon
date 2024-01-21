@@ -195,16 +195,13 @@ func NewAWSQueue(queueName string) (*AWSQueue, error) {
 		return nil, fmt.Errorf("error creating session: %q", err)
 	}
 	client := sqs.New(sess)
-	queue, err := client.CreateQueue(&sqs.CreateQueueInput{
-		QueueName: aws.String(queueName),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error creating queue: %q", err)
+	queueURL := os.Getenv("QUEUE_URL")
+	if queueURL == "" {
+		return nil, fmt.Errorf("error getting QUEUE_URL from environment")
 	}
-
 	return &AWSQueue{
 		client:    client,
-		queueURL:  queue.QueueUrl,
+		queueURL:  &queueURL,
 		QueueName: queueName,
 	}, nil
 }
