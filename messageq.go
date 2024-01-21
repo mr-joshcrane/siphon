@@ -10,6 +10,10 @@ import (
 	"os"
 	"strconv"
 	"sync"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
 var ErrServerClosed = errors.New("siphon: server closed")
@@ -20,7 +24,10 @@ func ListenAndServe(addr string) error {
 		return err
 	}
 	defer l.Close()
-	q := NewMemoryQueue(new(bytes.Buffer))
+	q, err := NewAWSQueue("testEvents")
+	if err != nil {
+		return err
+	}
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -31,7 +38,7 @@ func ListenAndServe(addr string) error {
 	return ErrServerClosed
 }
 
-func HandleConn(conn net.Conn, q *MemoryQueue) {
+func HandleConn(conn net.Conn, q Queue) {
 	worker, err := GetWorker(conn, q)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -63,7 +70,7 @@ type Client struct {
 
 type Worker struct {
 	Conn io.ReadWriter
-	Q    *MemoryQueue
+	Q    Queue
 }
 
 func (w *Worker) Publish(s string) error {
@@ -140,7 +147,7 @@ func (q *Client) Receive() (string, error) {
 	return string(message), nil
 }
 
-func GetWorker(conn io.ReadWriter, q *MemoryQueue) (*Worker, error) {
+func GetWorker(conn io.ReadWriter, q Queue) (*Worker, error) {
 	return &Worker{
 		Conn: conn,
 		Q:    q,
@@ -166,6 +173,94 @@ func NewMemoryQueue(buf *bytes.Buffer) *MemoryQueue {
 		isEmpty: cond,
 		mu:      mu,
 	}
+}
+
+type Queue interface {
+	Enqueue(string) error
+	Dequeue() (string, error)
+	Size() int
+}
+
+type AWSQueue struct {
+	client    *sqs.SQS
+	queueURL  *string
+	QueueName string
+}
+
+func NewAWSQueue(queueName string) (*AWSQueue, error) {
+	sess, err := session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error creating session: %q", err)
+	}
+	client := sqs.New(sess)
+	queue, err := client.CreateQueue(&sqs.CreateQueueInput{
+		QueueName: aws.String(queueName),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error creating queue: %q", err)
+	}
+
+	return &AWSQueue{
+		client:    client,
+		queueURL:  queue.QueueUrl,
+		QueueName: queueName,
+	}, nil
+}
+
+func (q *AWSQueue) Enqueue(s string) error {
+	_, err := q.client.SendMessage(&sqs.SendMessageInput{
+		MessageBody: aws.String(s),
+		QueueUrl:    q.queueURL,
+	})
+	if err != nil {
+		return fmt.Errorf("error sending message: %q", err)
+	}
+	return nil
+}
+
+func (q *AWSQueue) Dequeue() (string, error) {
+	for {
+		received, err := q.client.ReceiveMessage(&sqs.ReceiveMessageInput{
+			QueueUrl:        q.queueURL,
+			WaitTimeSeconds: aws.Int64(20),
+		})
+		if err != nil {
+			return "", fmt.Errorf("error receiving message: %q", err)
+		}
+		if len(received.Messages) == 0 {
+			continue
+		}
+		message := received.Messages[0]
+		_, err = q.client.DeleteMessage(&sqs.DeleteMessageInput{
+			QueueUrl:      q.queueURL,
+			ReceiptHandle: message.ReceiptHandle,
+		})
+		if err != nil {
+			return "", fmt.Errorf("error deleting message: %q", err)
+		}
+		return *message.Body, nil
+	}
+}
+
+func (q *AWSQueue) Size() int {
+	attr, err := q.client.GetQueueAttributes(&sqs.GetQueueAttributesInput{
+		QueueUrl: q.queueURL,
+		AttributeNames: []*string{
+			aws.String("ApproximateNumberOfMessages"),
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting queue attributes: %q", err)
+		return -1
+	}
+	length := *attr.Attributes["ApproximateNumberOfMessages"]
+	l, err := strconv.Atoi(length)
+	if err != nil {
+		return -1
+	}
+	return l
 }
 
 type MemoryQueue struct {
