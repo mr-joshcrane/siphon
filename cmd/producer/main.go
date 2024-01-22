@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -18,13 +19,17 @@ func main() {
 	r := bufio.NewReader(os.Stdin)
 	input := make(chan string)
 	go func() {
-		text, err := r.ReadString('\n')
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+		for {
+			text, err := r.ReadString('\n')
+			if err == io.EOF {
+				os.Exit(0)
+			}
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			input <- text
 		}
-		input <- text
-
 	}()
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
