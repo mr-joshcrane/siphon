@@ -207,6 +207,9 @@ func NewAWSQueue(queueName string) (*AWSQueue, error) {
 }
 
 func (q *AWSQueue) Enqueue(s string) error {
+	if s == "" {
+		return nil
+	}
 	_, err := q.client.SendMessage(&sqs.SendMessageInput{
 		MessageBody: aws.String(s),
 		QueueUrl:    q.queueURL,
