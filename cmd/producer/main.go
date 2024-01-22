@@ -34,12 +34,20 @@ func main() {
 	}()
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
-		message := <-input
-		err := q.Enqueue(message)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			continue
+	for {
+		select {
+		case <-ticker.C:
+			select {
+			case message := <-input:
+				err := q.Enqueue(message)
+				if err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					os.Exit(1)
+				}
+				fmt.Println("sent message")
+			default:
+				// Do nothing if no message is available
+			}
 		}
 	}
 }
