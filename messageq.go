@@ -225,6 +225,7 @@ func (q *AWSQueue) Dequeue() (string, error) {
 		received, err := q.client.ReceiveMessage(&sqs.ReceiveMessageInput{
 			QueueUrl:        q.queueURL,
 			WaitTimeSeconds: aws.Int64(20),
+			MaxNumberOfMessages: aws.Int64(10),
 		})
 		if err != nil {
 			return "", fmt.Errorf("error receiving message: %q", err)
@@ -232,15 +233,29 @@ func (q *AWSQueue) Dequeue() (string, error) {
 		if len(received.Messages) == 0 {
 			continue
 		}
-		message := received.Messages[0]
-		_, err = q.client.DeleteMessage(&sqs.DeleteMessageInput{
-			QueueUrl:      q.queueURL,
-			ReceiptHandle: message.ReceiptHandle,
-		})
-		if err != nil {
-			return "", fmt.Errorf("error deleting message: %q", err)
+		var msg string
+		for _, message := range received.Messages {
+			msg += *message.Body
 		}
-		return *message.Body, nil
+
+		go func() {
+			entries := make([]*sqs.DeleteMessageBatchRequestEntry, len(received.Messages))
+			for i, message := range received.Messages {
+				entries[i] = &sqs.DeleteMessageBatchRequestEntry{
+					Id:            message.MessageId,
+					ReceiptHandle: message.ReceiptHandle,
+				}
+			}
+
+			_, err = q.client.DeleteMessageBatch(&sqs.DeleteMessageBatchInput{
+				QueueUrl:      q.queueURL,
+				Entries:       entries,
+			})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error deleting message: %q", err)
+			}
+		}()
+		return msg, nil
 	}
 }
 

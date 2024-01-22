@@ -15,16 +15,16 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	r := bufio.NewReader(os.Stdin)
 	input := make(chan string)
 	go func() {
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			text := scanner.Text()
-			if text == "" {
-				continue
-			}
-			input <- fmt.Sprintf("%s\n", text)
+		text, err := r.ReadString('\n')
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
 		}
+		input <- text
+
 	}()
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
