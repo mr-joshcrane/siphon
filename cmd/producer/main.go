@@ -17,6 +17,9 @@ func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		text := scanner.Text()
+		if text == "" {
+			continue
+		}
 		err := q.Enqueue(text)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
