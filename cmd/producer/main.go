@@ -23,7 +23,7 @@ func main() {
 			if text == "" {
 				continue
 			}
-			input <- text
+			input <- fmt.Sprintf("%s\n", text)
 		}
 	}()
 	ticker := time.NewTicker(10 * time.Second)
