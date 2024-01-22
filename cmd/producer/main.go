@@ -17,11 +17,12 @@ func main() {
 		os.Exit(1)
 	}
 	r := bufio.NewReader(os.Stdin)
-	input := make(chan string)
+	input := make(chan string, 1_000_000)
 	go func() {
 		for {
 			text, err := r.ReadString('\n')
 			if err == io.EOF {
+				input <- text
 				os.Exit(0)
 			}
 			if err != nil {
