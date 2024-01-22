@@ -30,14 +30,15 @@ func main() {
 			}
 		}
 	}()
-	select {
-	case data := <-input:
-		err := q.Enqueue(data)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		message := <-input
+		err := q.Enqueue(message)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			continue
 		}
-	case <-time.After(10 * time.Second):
-		fmt.Println("Nothing recieved for 10 seconds")
 	}
+
 }
