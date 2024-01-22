@@ -15,7 +15,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-
 	input := make(chan string)
 	go func() {
 		scanner := bufio.NewScanner(os.Stdin)
@@ -24,10 +23,7 @@ func main() {
 			if text == "" {
 				continue
 			}
-			err := q.Enqueue(text)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-			}
+			input <- text
 		}
 	}()
 	ticker := time.NewTicker(10 * time.Second)
@@ -40,5 +36,4 @@ func main() {
 			continue
 		}
 	}
-
 }
