@@ -17,17 +17,17 @@ func main() {
 		os.Exit(1)
 	}
 	r := bufio.NewReader(os.Stdin)
-	input := make(chan string, 1_000_000)
+	input := make(chan string, 1000)
 	go func() {
 		for {
 			text, err := r.ReadString('\n')
 			if err == io.EOF {
 				input <- text
-				os.Exit(0)
+				return
 			}
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
+				return 
 			}
 			input <- text
 		}
@@ -35,18 +35,25 @@ func main() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
+		var message string
 		select {
 		case <-ticker.C:
-			select {
-			case message := <-input:
-				err := q.Enqueue(message)
+			for {
+				select {
+				case m := <-input:
+					message += m
+					fmt.Println(message)
+					continue
+				default:
+					break
+				}
+			
+			err := q.Enqueue(message)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					os.Exit(1)
 				}
-				fmt.Println("sent message")
-			default:
-				// Do nothing if no message is available
+				break
 			}
 		}
 	}
