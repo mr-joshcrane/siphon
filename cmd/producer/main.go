@@ -27,34 +27,25 @@ func main() {
 			}
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
-				return 
+				return
 			}
 			input <- text
 		}
 	}()
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
+	var messages []string
 	for {
-		var message string
 		select {
+		case m := <-input:
+			messages = append(messages, m)
 		case <-ticker.C:
-			for {
-				select {
-				case m := <-input:
-					message += m
-					fmt.Println(message)
-					continue
-				default:
-					break
-				}
-			
-			err := q.Enqueue(message)
-				if err != nil {
-					fmt.Fprintln(os.Stderr, err)
-					os.Exit(1)
-				}
-				break
+			err := q.Enqueue(messages...)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
 			}
+			messages = messages[:0]
 		}
 	}
 }

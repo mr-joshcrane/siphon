@@ -206,16 +206,18 @@ func NewAWSQueue(queueName string) (*AWSQueue, error) {
 	}, nil
 }
 
-func (q *AWSQueue) Enqueue(s string) error {
-	if s == "" {
-		return nil
-	}
-	_, err := q.client.SendMessage(&sqs.SendMessageInput{
-		MessageBody: aws.String(s),
-		QueueUrl:    q.queueURL,
-	})
-	if err != nil {
-		return fmt.Errorf("error sending message: %q", err)
+func (q *AWSQueue) Enqueue(s ...string) error {
+	for _, msg := range s {
+		if msg == "" {
+			continue
+		}
+		_, err := q.client.SendMessage(&sqs.SendMessageInput{
+			MessageBody: aws.String(msg),
+			QueueUrl:    q.queueURL,
+		})
+		if err != nil {
+			return fmt.Errorf("error sending message: %q", err)
+		}
 	}
 	return nil
 }
@@ -223,8 +225,8 @@ func (q *AWSQueue) Enqueue(s string) error {
 func (q *AWSQueue) Dequeue() (string, error) {
 	for {
 		received, err := q.client.ReceiveMessage(&sqs.ReceiveMessageInput{
-			QueueUrl:        q.queueURL,
-			WaitTimeSeconds: aws.Int64(20),
+			QueueUrl:            q.queueURL,
+			WaitTimeSeconds:     aws.Int64(20),
 			MaxNumberOfMessages: aws.Int64(10),
 		})
 		if err != nil {
@@ -248,8 +250,8 @@ func (q *AWSQueue) Dequeue() (string, error) {
 			}
 
 			_, err = q.client.DeleteMessageBatch(&sqs.DeleteMessageBatchInput{
-				QueueUrl:      q.queueURL,
-				Entries:       entries,
+				QueueUrl: q.queueURL,
+				Entries:  entries,
 			})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error deleting message: %q", err)
