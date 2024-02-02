@@ -12,12 +12,13 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/mr-joshcrane/siphon"
+	"github.com/mr-joshcrane/siphon/queue"
 )
 
 func TestEnqueue_OrderIsCorrect(t *testing.T) {
 	t.Parallel()
 	buf := new(bytes.Buffer)
-	q := siphon.NewMemoryQueue(buf)
+	q := queue.NewMemoryQueue(buf)
 	_ = q.Enqueue("a")
 	_ = q.Enqueue("b")
 	_ = q.Enqueue("c")
@@ -32,7 +33,7 @@ func TestEnqueue_OrderIsCorrect(t *testing.T) {
 func TestEnqueue_BytesIncrease(t *testing.T) {
 	t.Parallel()
 	buf := new(bytes.Buffer)
-	q := siphon.NewMemoryQueue(buf)
+	q := queue.NewMemoryQueue(buf)
 	if buf.Len() != 0 {
 		t.Errorf("Expected queue to be empty, got %d", buf.Len())
 	}
@@ -49,7 +50,7 @@ func TestEnqueue_BytesIncrease(t *testing.T) {
 func TestDequeue_IsFirstInFirstOut(t *testing.T) {
 	t.Parallel()
 	buf := helperTestBuffer()
-	q := siphon.NewMemoryQueue(buf)
+	q := queue.NewMemoryQueue(buf)
 	item, err := q.Dequeue()
 	if err != nil {
 		t.Fatalf("Expected no error, got %q", err)
@@ -76,7 +77,7 @@ func TestDequeue_IsFirstInFirstOut(t *testing.T) {
 func TestDequeue_BytesDecrease(t *testing.T) {
 	t.Parallel()
 	buf := helperTestBuffer()
-	q := siphon.NewMemoryQueue(buf)
+	q := queue.NewMemoryQueue(buf)
 	_, err := q.Dequeue()
 	if err != nil {
 		t.Fatalf("Expected no error, got %q", err)
@@ -102,7 +103,7 @@ func TestDequeue_BytesDecrease(t *testing.T) {
 
 func TestEmptyQueueDequeue(t *testing.T) {
 	buf := new(bytes.Buffer)
-	q := siphon.NewMemoryQueue(buf)
+	q := queue.NewMemoryQueue(buf)
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		_ = q.Enqueue("a")
@@ -119,7 +120,7 @@ func TestEmptyQueueDequeue(t *testing.T) {
 func TestSize(t *testing.T) {
 	t.Parallel()
 	buf := new(bytes.Buffer)
-	q := siphon.NewMemoryQueue(buf)
+	q := queue.NewMemoryQueue(buf)
 	if q.Size() != 0 {
 		t.Errorf("Expected queue to be empty, got %d", q.Size())
 	}
@@ -254,7 +255,7 @@ func TestHandleConn_Receive(t *testing.T) {
 func TestConcurrency_IsThreadSafe(t *testing.T) {
 	t.Parallel()
 	buf := new(bytes.Buffer)
-	q := siphon.NewMemoryQueue(buf)
+	q := queue.NewMemoryQueue(buf)
 	wg := &sync.WaitGroup{}
 	wg.Add(100)
 	for i := 0; i < 100; i++ {
@@ -270,7 +271,7 @@ func TestConcurrency_IsThreadSafe(t *testing.T) {
 }
 func BenchmarkEnqueue(b *testing.B) {
 	buf := new(bytes.Buffer)
-	q := siphon.NewMemoryQueue(buf)
+	q := queue.NewMemoryQueue(buf)
 	for i := 0; i < b.N; i++ {
 		_ = q.Enqueue("a")
 		_, _ = q.Dequeue()
@@ -281,8 +282,8 @@ func helperTestBuffer() *bytes.Buffer {
 	return bytes.NewBuffer([]byte{0, 0, 0, 1, 'a', 0, 0, 0, 1, 'b', 0, 0, 0, 1, 'c'})
 }
 
-func helperTestClient(items ...string) *siphon.Client {
-	c := &siphon.Client{
+func helperTestClient(items ...string) *siphon.NetworkClient {
+	c := &siphon.NetworkClient{
 		Conn: new(bytes.Buffer),
 	}
 	for _, item := range items {
@@ -292,13 +293,13 @@ func helperTestClient(items ...string) *siphon.Client {
 
 }
 
-func helperTCPServerWithConn(t *testing.T) (addr string, q *siphon.MemoryQueue, cleanup func()) {
+func helperTCPServerWithConn(t *testing.T) (addr string, q *queue.MemoryQueue, cleanup func()) {
 	t.Helper()
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatalf("Expected no error, got %q", err)
 	}
-	q = siphon.NewMemoryQueue(new(bytes.Buffer))
+	q = queue.NewMemoryQueue(new(bytes.Buffer))
 	go func() {
 		conn, _ := l.Accept()
 		siphon.HandleConn(conn, q)
@@ -308,7 +309,7 @@ func helperTCPServerWithConn(t *testing.T) (addr string, q *siphon.MemoryQueue, 
 	}
 }
 
-func waitForQueueSize(q *siphon.MemoryQueue, size int) {
+func waitForQueueSize(q *queue.MemoryQueue, size int) {
 	ctx, cancel := context.WithTimeout(context.TODO(), 2000*time.Millisecond)
 	defer cancel()
 	for ctx.Err() == nil {
