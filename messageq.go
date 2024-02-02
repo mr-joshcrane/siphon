@@ -176,7 +176,7 @@ func NewMemoryQueue(buf *bytes.Buffer) *MemoryQueue {
 }
 
 type Queue interface {
-	Enqueue(string) error
+	Enqueue(...string) error
 	Dequeue() (string, error)
 	Size() int
 }
@@ -291,15 +291,17 @@ func (q *MemoryQueue) Signal() {
 	q.isEmpty.Signal()
 }
 
-func (q *MemoryQueue) Enqueue(s string) error {
+func (q *MemoryQueue) Enqueue(items ...string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	length := len(s)
-	sizeHint := make([]byte, 4)
-	binary.BigEndian.PutUint32(sizeHint, uint32(length))
-	q.Buf.Write(sizeHint)
-	q.Buf.WriteString(s)
-	q.size++
+	for _, item := range items {
+		length := len(item)
+		sizeHint := make([]byte, 4)
+		binary.BigEndian.PutUint32(sizeHint, uint32(length))
+		q.Buf.Write(sizeHint)
+		q.Buf.WriteString(item)
+		q.size++
+	}
 	q.Signal()
 	return nil
 }
