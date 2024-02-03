@@ -2,17 +2,13 @@ package siphon
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"net"
-	"os"
 	"strconv"
-
-	"github.com/mr-joshcrane/siphon/queue"
 )
 
 type Worker struct {
-	Conn net.Conn
+	Conn io.ReadWriter
 	Q    Queue
 }
 
@@ -69,38 +65,4 @@ func (w *Worker) ClientResponse() error {
 		return nil
 	}
 	return w.Publish(strconv.Itoa(int(size)))
-}
-func ListenAndServe(addr string) error {
-	l, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-	defer l.Close()
-	q, err := queue.NewAWSQueue("testEvents")
-	if err != nil {
-		return err
-	}
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			return err
-		}
-		go HandleConn(conn, q)
-	}
-	return ErrServerClosed
-}
-
-func HandleConn(conn net.Conn, q Queue) {
-	worker, err := GetWorker(conn, q)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
-	}
-	for {
-		err := worker.ClientResponse()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return
-		}
-	}
 }
