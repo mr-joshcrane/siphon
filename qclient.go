@@ -12,7 +12,7 @@ type MessageClient interface {
 
 type NetworkClient struct {
 	Conn io.ReadWriter
-	q		Queue
+	q    Queue
 }
 
 func (q *NetworkClient) Publish(s string) error {

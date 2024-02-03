@@ -6,14 +6,20 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/mr-joshcrane/coverage"
 	"github.com/mr-joshcrane/siphon"
 	"github.com/mr-joshcrane/siphon/queue"
 )
+
+func TestMain(m *testing.M) {
+	os.Exit(coverage.ExtendCoverage(m, "siphon"))
+}
 
 func TestEnqueue_OrderIsCorrect(t *testing.T) {
 	t.Parallel()
@@ -210,8 +216,15 @@ func TestHandleConn_Publish(t *testing.T) {
 		t.Fatalf("Expected no error, got %q", err)
 	}
 	waitForQueueSize(q, 2)
-	got := q.Buf.Bytes()
-	want := []byte{0, 0, 0, 1, 'a', 0, 0, 0, 1, 'b'}
+	var got []string
+	for i := 0; i < 2; i++ {
+		item, err := q.Dequeue()
+		if err != nil {
+			t.Fatalf("Expected no error, got %q", err)
+		}
+		got = append(got, item)
+	}
+	want := []string{"a", "b"}
 	if !cmp.Equal(got, want) {
 		t.Errorf("Expected queue to be %q, got %q", want, got)
 	}
@@ -293,13 +306,13 @@ func helperTestClient(items ...string) *siphon.NetworkClient {
 
 }
 
-func helperTCPServerWithConn(t *testing.T) (addr string, q *queue.MemoryQueue, cleanup func()) {
+func helperTCPServerWithConn(t *testing.T) (addr string, q siphon.Queue, cleanup func()) {
 	t.Helper()
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatalf("Expected no error, got %q", err)
 	}
-	q = queue.NewMemoryQueue(new(bytes.Buffer))
+	q = queue.NewChannelQueue(100)
 	go func() {
 		conn, _ := l.Accept()
 		siphon.HandleConn(conn, q)
@@ -309,7 +322,7 @@ func helperTCPServerWithConn(t *testing.T) (addr string, q *queue.MemoryQueue, c
 	}
 }
 
-func waitForQueueSize(q *queue.MemoryQueue, size int) {
+func waitForQueueSize(q siphon.Queue, size int) {
 	ctx, cancel := context.WithTimeout(context.TODO(), 2000*time.Millisecond)
 	defer cancel()
 	for ctx.Err() == nil {
